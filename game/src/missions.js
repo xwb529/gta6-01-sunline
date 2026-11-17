@@ -10,28 +10,29 @@
   S.Missions=class {
     constructor(g,index=0){this.g=g;this.index=S.clamp(index,0,4);this.active=false;this.stage=0;this.timer=0;this.progress=0;this.job=jobs[this.index];this.courierCD=0;}
     marker(){
-      if(!this.active)return this.index<4?{...C.contact,type:'contact',label:'MARA / NEW JOB'}:null;
+      if(!this.active)return this.courier?{...this.courier,type:'objective',label:'COURIER / SALT HARBOR'}:{...C.contact,type:'contact',label:this.index<4?'MARA / NEW JOB':'MARA / COURIER WORK'};
       let point,label;
       if(this.index===0){point=this.stage===0?C.package:C.contact;label=this.stage===0?'COURIER TAPE':'MARA / RETURN THE TAPE';}
       if(this.index===1){point=C.dock;label='DELIVERY / SALT HARBOR';}
-      if(this.index===2){point=this.stage===0?this.g.specialCar:C.garage;label=this.stage===0?'AURELIA GT':'CALDER / DELIVER THE CAR';}
+      if(this.index===2){const retrieve=this.g.player.car!==this.g.specialCar;point=retrieve?this.g.specialCar:C.garage;label=retrieve?(this.stage===0?'AURELIA GT':'RETRIEVE YOUR AURELIA'):this.g.heat>0?'CALDER / LOSE POLICE FIRST':'CALDER / DELIVER THE CAR';}
       if(this.index===3){point=this.stage===0?C.broadcast:C.contact;label=this.stage===0?'BROADCAST TRANSMITTER':this.g.heat>0?'LOSE THE POLICE':'MARA / ONE LAST TIME';}
-      return {...point,type:this.index===2&&this.stage===0?'car':'objective',label};
+      return {...point,type:this.index===2&&point===this.g.specialCar?'car':'objective',label};
     }
     objective(){
-      if(this.index>=4)return 'The signal is yours. Explore Solenne. Take courier jobs at Mara’s.';
+      if(this.index>=4)return this.courier?'Deliver the radio part to Salt Harbor. Payment: $250.':'The signal is yours. Explore Solenne. Take courier jobs at Mara’s.';
       if(!this.active)return 'Meet Mara at the radio shop to begin the next job.';
       if(this.index===0)return this.stage===0?'Find the courier’s tape in Sundial courtyard.':'Return the tape to Mara’s radio shop.';
       if(this.index===1)return 'Deliver the encrypted reel to Salt Harbor pier.';
-      if(this.index===2)return this.stage===0?'Steal the gold Aurelia GT on Canal Street.':'Deliver the Aurelia to Calder’s workshop intact.';
+      if(this.index===2)return this.stage===0?'Steal the gold Aurelia GT on Canal Street.':this.g.player.car!==this.g.specialCar?'Retrieve the Aurelia. Follow its gold vehicle marker.':this.g.heat>0?'Lose the patrols, then deliver the Aurelia intact.':'Deliver the Aurelia to Calder’s workshop intact.';
       return this.stage===0?'Reach the transmitter in Sundial Gardens.':this.g.heat>0?'Lose the 3-star pursuit. Break line of sight.':'Return to Mara. It’s time for the city to hear.';
     }
     prompt(){
       const g=this.g,t=S.target(g),m=this.marker();
-      if(m&&S.dist(t,m)<72){
+      if(m&&S.dist(t,m)<75&&g.city.clear(t,m)){
+        if(this.index>=4)return this.courier?'DELIVERING RADIO PART / +$250':'F / TAKE A COURIER JOB · $250';
         if(!this.active)return g.player.car?'EXIT VEHICLE TO TALK TO MARA':'F / TALK TO MARA';
-        if(this.index===2&&this.stage===0)return 'E / STEAL THE AURELIA GT';
-        if(this.index===2&&g.player.car!==g.specialCar)return 'BRING THE GOLD AURELIA GT';
+        if(this.index===2&&g.player.car!==g.specialCar)return g.player.car?'EXIT THIS VEHICLE / TAKE THE AURELIA':'E / '+(this.stage===0?'STEAL':'RETRIEVE')+' THE AURELIA GT';
+        if(this.index===2&&g.heat>0)return 'LOSE THE POLICE / F TO REPAIR IF HIDDEN';
         if(this.index===3&&this.stage===1&&g.heat>0)return 'LOSE THE POLICE BEFORE RETURNING';
         if(this.index===0&&this.stage===1&&g.player.car)return 'EXIT VEHICLE TO GIVE MARA THE TAPE';
         return 'F / '+(this.index===0&&this.stage===0?'PICK UP TAPE':this.index===3&&this.stage===0?'START THE BROADCAST':'COMPLETE OBJECTIVE');
@@ -42,21 +43,21 @@
     }
     interact(){
       const g=this.g,t=S.target(g),m=this.marker();
-      if(!this.active&&this.index<4&&S.dist(t,C.contact)<75&&!g.player.car){this.brief();return true;}
-      if(this.active&&m&&S.dist(t,m)<77){
+      if(!this.active&&this.index<4&&S.dist(t,C.contact)<75&&!g.player.car&&g.city.clear(t,C.contact)){this.brief();return true;}
+      if(this.active&&m&&S.dist(t,m)<75&&g.city.clear(t,m)&&!(this.index===2&&this.stage===1&&g.heat>0)){
         if(this.index===0){if(this.stage===0){this.stage=1;g.notify('TAPE RECOVERED  /  RETURN TO MARA');g.sound('pickup');S.effects(g,t.x,t.y,'#ffcc77',16,70);}else if(!g.player.car)this.complete();}
         else if(this.index===1)this.complete();
-        else if(this.index===2&&this.stage===1&&g.player.car===g.specialCar){g.specialCar.hp=100;this.complete();}
-        else if(this.index===3){if(this.stage===0){this.stage=1;this.progress=0;S.crime(g,3,t.x,t.y,true);g.heat=Math.max(g.heat,3);g.notify('SIGNAL LIVE  /  LOSE THE THREE-STAR PURSUIT');g.sound('alert');}else if(g.heat===0){this.complete();}}
+        else if(this.index===2&&this.stage===1&&g.player.car===g.specialCar){g.specialCar.hp=g.specialCar.maxHp;this.complete();}
+        else if(this.index===3){if(this.stage===0){this.stage=1;this.progress=0;S.raiseHeat(g,3,t.x,t.y);g.notify('SIGNAL LIVE  /  BREAK SIGHT & HIDE TO LOSE THE PATROLS');g.sound('alert');}else if(g.heat===0){this.complete();}else g.notify('LOSE THE POLICE BEFORE RETURNING');}
         return true;
       }
-      if(S.dist(t,C.garage)<90){
+      if(S.dist(t,C.garage)<90&&g.city.clear(t,C.garage)){
         if(g.heat>0&&g.seen){g.notify('WORKSHOP CLOSED WHILE POLICE CAN SEE YOU');return true;}
         if(g.cash<100){g.notify('REPAIR COSTS $100');return true;}
-        g.cash-=100;g.player.hp=100;if(g.player.car)g.player.car.hp=100;g.player.ammo=12;g.save();g.notify('CALDER / ALL PATCHED UP. STAY SHARP.');g.sound('success');return true;
+        g.cash-=100;g.player.hp=100;if(g.player.car)g.player.car.hp=g.player.car.maxHp;g.player.ammo=12;g.player.reload=0;g.save();g.notify('CALDER / ALL PATCHED UP. STAY SHARP.');g.sound('success');return true;
       }
       if(this.index>=4&&S.dist(t,C.contact)<75){
-        if(this.courier){if(S.dist(t,this.courier)<75){g.cash+=250;this.courier=null;g.save();g.notify('COURIER COMPLETE / +$250');}}
+        if(this.courier){g.notify('YOUR DELIVERY IS WAITING / FOLLOW THE GOLD MARKER');}
         else{this.courier={...C.dock};g.notify('FREE ROAM JOB / DELIVER A RADIO PART TO SALT HARBOR FOR $250');}
         return true;
       }
@@ -68,8 +69,8 @@
     }
     start(){
       const g=this.g;this.active=true;this.stage=0;this.timer=0;this.job=jobs[this.index];
-      if(this.index===1){S.crime(g,1.9,g.player.x,g.player.y,true);g.heat=Math.max(2,g.heat);g.notify('REEL COLLECTED  /  DISPATCH HAS YOUR DESCRIPTION');}
-      if(this.index===2){const c=g.specialCar;c.x=C.coupe.x;c.y=C.coupe.y;c.a=Math.PI;c.hp=100;c.dead=false;c.owned=false;if(g.player.car===c)g.player.car=null;}
+      if(this.index===1){S.raiseHeat(g,2,g.player.x,g.player.y);g.notify('REEL COLLECTED  /  DISPATCH HAS YOUR DESCRIPTION');}
+      if(this.index===2){const c=g.specialCar;if(g.player.car===c){g.player.x=C.contact.x;g.player.y=C.contact.y;g.player.car=null;}Object.assign(c,S.makeCar(C.coupe.x,C.coupe.y,Math.PI,'#edb950','special'));}
       g.sound('pickup');g.closeScreen();g.save();
     }
     retry(reason){
@@ -85,9 +86,10 @@
     }
     tick(dt){
       const g=this.g;this.timer+=dt;
-      if(this.active&&this.index===2&&this.stage===0&&g.player.car===g.specialCar){this.stage=1;S.crime(g,1.8,g.player.x,g.player.y,true);g.heat=Math.max(2,g.heat);g.notify('AURELIA ACQUIRED / DELIVER TO CALDER’S WORKSHOP');}
+      if(this.active&&this.index===2&&g.specialCar.dead){this.retry('THE AURELIA WAS LOST / RETURN TO MARA TO RETRY');return;}
+      if(this.active&&this.index===2&&this.stage===0&&g.player.car===g.specialCar){this.stage=1;S.raiseHeat(g,2,g.player.x,g.player.y);g.notify('AURELIA ACQUIRED / LOSE THE PATROLS, THEN REACH CALDER');}
       if(this.active&&this.index===3&&this.stage===1&&g.heat===0&&this.progress===0){this.progress=1;g.notify('POLICE EVADED / RETURN TO MARA');}
-      if(this.courier&&S.dist(S.target(g),this.courier)<75){g.cash+=250;this.courier=null;g.save();g.notify('COURIER COMPLETE / +$250');g.sound('success');}
+      if(this.courier&&S.dist(S.target(g),this.courier)<75&&g.city.clear(S.target(g),this.courier)){g.cash+=250;this.courier=null;g.save();g.notify('COURIER COMPLETE / +$250');g.sound('success');}
     }
   };
   S.jobs=jobs;

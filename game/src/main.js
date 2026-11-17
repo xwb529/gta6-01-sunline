@@ -11,14 +11,19 @@
       window.addEventListener('blur',()=>{if(this.mode==='play')this.pause();});
       requestAnimationFrame(now=>this.frame(now));
     }
-    readSave(){try{const s=JSON.parse(localStorage.getItem(C.saveKey));if(s&&s.v===1&&Number.isFinite(s.cash)&&Number.isInteger(s.mission))return{cash:S.clamp(s.cash,0,1e7),mission:S.clamp(s.mission,0,4)};}catch{}return null;}
-    save(){try{localStorage.setItem(C.saveKey,JSON.stringify({v:1,cash:Math.round(this.cash),mission:this.mission.index}));this.saved={cash:this.cash,mission:this.mission.index};}catch{}}
+    readSave(){try{const s=JSON.parse(localStorage.getItem(C.saveKey));if(s&&s.v===1&&Number.isFinite(s.cash)&&s.cash>=0&&Number.isInteger(s.mission)&&s.mission>=0&&s.mission<=4)return{cash:Math.min(Math.round(s.cash),1e7),mission:s.mission};}catch{}return null;}
+    save(){
+      if(!Number.isFinite(this.cash)||!Number.isInteger(this.mission.index)||this.mission.index<0||this.mission.index>4)return;
+      this.saved={cash:S.clamp(Math.round(this.cash),0,1e7),mission:this.mission.index};
+      try{localStorage.setItem(C.saveKey,JSON.stringify({v:1,...this.saved}));this.saveUnavailable=false;}
+      catch{if(!this.saveUnavailable)this.notify('BROWSER STORAGE UNAVAILABLE / PROGRESS KEPT FOR THIS SESSION');this.saveUnavailable=true;}
+    }
     reset(useSave){
-      const save=useSave?this.saved:null;this.time=0;this.cash=save?save.cash:150;this.heat=0;this.bust=0;this.seen=false;this.lastCrime=-100;this.lastSeen=-100;this.lastKnown={...C.contact};this.spawnCD=1;this.shake=0;this.escapeDistance=0;this.lastSkid=0;this.autosave=0;
+      const save=useSave?this.saved:null;this.time=0;this.cash=save?save.cash:150;this.heat=0;this.bust=0;this.seen=false;this.lastCrime=-100;this.lastSeen=-100;this.lastKnown={...C.contact};this.spawnCD=1;this.shake=0;this.escapeDistance=0;this.lastSkid=0;this.autosave=0;this.toastQueue=[];this.toastEnd=0;this.toast.classList.remove('show');
       this.player={x:1180,y:1463,a:-Math.PI/2,hp:100,ammo:12,reload:0,fireCD:0,hurt:0,invuln:0,car:null,step:0,moving:false};
       S.populate(this);this.mission=new S.Missions(this,save?save.mission:0);this.camera.x=1280;this.camera.y=1440;this.camera.zoom=1;
     }
-    start(useSave=false){this.initAudio();this.reset(useSave);this.mode='play';this.screen.className='screen hidden';this.input.flush();this.input.mouse.down=false;this.save();this.notify(useSave?'WELCOME BACK TO SOLENNE':'MARA’S WAITING UP THE BLOCK / FOLLOW THE MINT MARKER');this.status.textContent='Playing Sunline. WASD moves; E enters a car; F interacts.';}
+    start(useSave=false){this.initAudio();this.reset(useSave);this.closeScreen();this.save();this.notify(useSave?'WELCOME BACK TO SOLENNE':'MARA’S WAITING UP THE BLOCK / FOLLOW THE MINT MARKER');this.status.textContent='Playing Sunline. WASD moves; E enters a car; F interacts.';}
     showTitle(){
       this.mode='title';this.screen.className='screen title';this.panel.className='panel';
       this.panel.innerHTML='<p class="eyebrow">AN ORIGINAL OPEN-CITY ACTION GAME</p><h1 class="logo">SUNLINE</h1><p class="subtitle">THE SOLENNE JOB</p><div class="rule"></div><p class="blurb">A stolen shoreline. A city on the take.<br>You’re a wheelman with one last chance to get out.<br>Mara has a different plan: steal the truth back.</p><div class="buttons">'+(this.saved?'<button class="primary" id="continue">Continue / '+(this.saved.mission>=4?'Free roam':'Job '+(this.saved.mission+1))+'</button>':'')+'<button class="'+(this.saved?'':'primary')+'" id="start">'+(this.saved?'New story':'Start your story')+'</button></div><div class="controls"><span><b>WASD / ↑↓←→</b> Walk / drive</span><span><b>E</b> Enter / exit a car</span><span><b>MOUSE / CLICK</b> Aim / shoot</span><span><b>F</b> Talk / collect / deliver</span><span><b>SHIFT / SPACE</b> Sprint / handbrake</span><span><b>R · M · ESC</b> Reload · map · pause</span></div><p class="fineprint">4 STORY JOBS · SAVES AUTOMATICALLY · PLAY OFFLINE</p>';
@@ -26,7 +31,7 @@
       if(this.saved)document.getElementById('continue').onclick=()=>this.start(true);
     }
     confirmNew(){this.dialog({eyebrow:'NEW STORY',title:'BACK TO THE BEGINNING?',text:'Start a fresh run in Solenne. This replaces the saved story and cash in this browser.',button:'Start new story',action:()=>this.start(),secondary:'Keep my save',back:()=>this.showTitle()});}
-    closeScreen(){this.mode='play';this.screen.className='screen hidden';this.input.flush();this.input.mouse.down=false;}
+    closeScreen(){this.mode='play';this.screen.className='screen hidden';this.input.clear();this.accumulator=0;}
     dialog(data){
       this.mode='dialog';this.screen.className='screen';this.panel.className='panel'+(data.ending?' ending':'');
       this.panel.innerHTML='<p class="eyebrow">'+data.eyebrow+'</p>'+(data.speaker?'<div class="speaker"><div class="portrait">MV</div><p>RADIO OPERATOR<strong>Mara Vela</strong></p></div>':'')+'<h2>'+data.title+'</h2><p class="quote">'+data.text.replace(/\n/g,'<br>')+'</p>'+(data.objective?'<div class="reward">'+data.objective+'<br><strong>'+(data.reward?S.money(data.reward)+' CASH REWARD':'')+'</strong></div>':'')+'<div class="buttons"><button id="dialog-action" class="primary">'+(data.button||'Continue')+'</button>'+(data.secondary?'<button id="dialog-back">'+data.secondary+'</button>':'')+'</div>';
@@ -36,7 +41,7 @@
     pause(){
       if(this.mode!=='play'&&this.mode!=='map')return;this.save();this.mode='pause';this.screen.className='screen';this.panel.className='panel';
       this.panel.innerHTML='<p class="eyebrow">SOLENNE / TAKING A BREATHER</p><h2>THE CITY CAN WAIT.</h2><p class="blurb">Your cash and completed jobs are saved. Active jobs restart at Mara’s if you leave.</p><div class="controls"><span><b>E</b> Enter / exit car</span><span><b>F</b> Mission / workshop</span><span><b>R</b> Reload pistol</span><span><b>M</b> City map</span><span><b>SHIFT</b> Sprint on foot</span><span><b>SPACE</b> Handbrake in car</span></div><div class="buttons"><button id="resume" class="primary">Resume</button><button id="sound">Sound: '+(this.muted?'Off':'On')+'</button><button id="menu">Main menu</button></div>';
-      document.getElementById('resume').onclick=()=>this.closeScreen();document.getElementById('sound').onclick=e=>{this.muted=!this.muted;e.target.textContent='Sound: '+(this.muted?'Off':'On');};document.getElementById('menu').onclick=()=>{this.saved=this.readSave();this.reset(true);this.showTitle();};this.input.mouse.down=false;
+      document.getElementById('resume').onclick=()=>this.closeScreen();document.getElementById('sound').onclick=e=>{this.muted=!this.muted;e.target.textContent='Sound: '+(this.muted?'Off':'On');};document.getElementById('menu').onclick=()=>{this.saved=this.saved||this.readSave();this.reset(true);this.showTitle();};this.input.clear();
     }
     fail(reason){
       if(this.mode!=='play')return;this.mode='dead';this.save();this.screen.className='screen';this.panel.className='panel dead';
@@ -46,11 +51,17 @@
     respawn(){
       const cash=Math.max(0,this.cash-100),index=this.mission.index;this.reset(false);this.cash=cash;this.mission=new S.Missions(this,index);this.player.invuln=3;this.closeScreen();this.save();this.notify('BACK IN SOLENNE / RETURN TO MARA TO RETRY THE JOB');
     }
-    notify(message){this.toast.textContent=message;this.toast.classList.add('show');this.toastEnd=performance.now()+3800;this.status.textContent=message;}
+    notify(message){
+      if(this.toastEnd>performance.now()){
+        if(this.toast.textContent!==message&&!this.toastQueue.includes(message)){this.toastQueue.push(message);if(this.toastQueue.length>4)this.toastQueue.shift();}
+        return;
+      }
+      this.toast.textContent=message;this.toast.classList.add('show');this.toastEnd=performance.now()+3000;this.status.textContent=message;
+    }
     hint(){
       const p=this.player,m=this.mission.prompt();if(m)return m;
       if(p.car)return 'E / EXIT VEHICLE';
-      const c=this.cars.find(c=>!c.dead&&S.dist(c,p)<62);return c?'E / '+(c.owned?'DRIVE ':'STEAL ')+c.name:null;
+      const c=this.cars.filter(c=>!c.dead&&Math.abs(c.speed)<100&&S.dist(c,p)<64&&this.city.clear(p,c)).sort((a,b)=>S.dist(a,p)-S.dist(b,p))[0];return c?'E / '+(c.owned?'DRIVE ':'STEAL ')+c.name:null;
     }
     worldToScreen(x,y){const c=this.camera;return{x:(x-c.x)*c.zoom+this.renderer.w/2,y:(y-c.y)*c.zoom+this.renderer.h/2};}
     screenToWorld(x,y){const c=this.camera;return{x:(x-this.renderer.w/2)/c.zoom+c.x,y:(y-this.renderer.h/2)/c.zoom+c.y};}
@@ -60,7 +71,7 @@
     sound(kind){
       if(!this.audio||this.muted||this.audio.state!=='running')return;
       const params={shot:[140,.065,'sawtooth',.055],enemy:[90,.07,'square',.018],pickup:[680,.12,'sine',.08],success:[860,.3,'sine',.08],alert:[390,.17,'square',.035],door:[110,.06,'triangle',.08],crash:[55,.14,'sawtooth',.045],hurt:[80,.13,'triangle',.05],reload:[260,.06,'triangle',.04]}[kind];
-      if(!params)return;const [f,d,type,volume]=params,o=this.audio.createOscillator(),v=this.audio.createGain(),now=this.audio.currentTime;o.type=type;o.frequency.setValueAtTime(f,now);o.frequency.exponentialRampToValueAtTime(kind==='success'?f*1.6:Math.max(30,f*.5),now+d);v.gain.setValueAtTime(volume,now);v.gain.exponentialRampToValueAtTime(.0001,now+d);o.connect(v);v.connect(this.audio.destination);o.start(now);o.stop(now+d);
+      if(!params)return;const [f,d,type,volume]=params,o=this.audio.createOscillator(),v=this.audio.createGain(),now=this.audio.currentTime;o.type=type;o.frequency.setValueAtTime(f,now);o.frequency.exponentialRampToValueAtTime(kind==='success'?f*1.6:Math.max(30,f*.5),now+d);v.gain.setValueAtTime(volume,now);v.gain.exponentialRampToValueAtTime(.0001,now+d);o.connect(v);v.connect(this.audio.destination);o.onended=()=>{o.disconnect();v.disconnect();};o.start(now);o.stop(now+d);
     }
     actions(){
       const input=this.input;
@@ -71,6 +82,7 @@
         else if(this.mode==='dialog')document.getElementById('dialog-action')?.click();else if(this.mode==='dead')this.respawn();else if(this.mode==='pause')this.closeScreen();
       }
       if(this.mode==='play'){
+        if(input.take('KeyR'))S.reload(this);
         if(input.take('KeyE'))S.enterExit(this);
         if(input.take('KeyF')){if(!this.mission.interact())this.notify('F / INTERACT AT A CONTACT, OBJECTIVE OR WORKSHOP');}
       }
@@ -91,7 +103,7 @@
         this.camera.x=S.lerp(this.camera.x,tx,1-Math.exp(-dt*5));this.camera.y=S.lerp(this.camera.y,ty,1-Math.exp(-dt*5));
         this.camera.zoom=S.lerp(this.camera.zoom,moving?.9:1.12,1-Math.exp(-dt*2));
       }
-      if(this.toastEnd&&now>this.toastEnd){this.toast.classList.remove('show');this.toastEnd=0;}
+      if(this.toastEnd&&now>this.toastEnd){this.toast.classList.remove('show');this.toastEnd=0;if(this.toastQueue.length)this.notify(this.toastQueue.shift());}
       this.renderer.draw();this.input.flush();requestAnimationFrame(n=>this.frame(n));
     }
   }

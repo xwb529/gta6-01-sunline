@@ -99,7 +99,7 @@
     }
     paint(c) {
       const rect=(x,y,w,h,color)=>{c.fillStyle=color;c.fillRect(x,y,w,h);};
-      rect(0,0,C.W,C.H,'#388d98');
+      rect(0,0,C.W,C.H,'#409ca5');
       for(let y=0;y<C.H;y+=24){c.strokeStyle=y%48?'#77b9b129':'#b8d5b82b';c.lineWidth=2;c.beginPath();for(let x=0;x<=C.W;x+=12){const yy=y+Math.sin(x*.017+y)*4;if(x===0)c.moveTo(x,yy);else c.lineTo(x,yy);}c.stroke();}
       rect(119,95,2934,2800,'#b9c5a1');rect(2937,95,117,2800,'#ead0a0');rect(3030,95,24,2800,'#dce0b2');
       rect(128,100,20,2785,'#e1c69b');
@@ -116,6 +116,19 @@
         rect(x-55,y-55,110,110,'#40585a');
         for(let k=-43;k<50;k+=13){rect(x+k,y-73,7,16,'#e9e3c9');rect(x+k,y+57,7,16,'#e9e3c9');rect(x-73,y+k,16,7,'#e9e3c9');rect(x+57,y+k,16,7,'#e9e3c9');}
         for(const [sx,sy] of [[-70,-82],[70,82]]){rect(x+sx,y+sy,4,13,'#30514b');rect(x+sx-2,y+sy,8,5,'#dfb969');}
+      }
+      // Baked asphalt wear and lane furniture cost nothing during gameplay.
+      for(let row=0;row<6;row++)for(let col=0;col<7;col++){
+        const x=C.xs[col],y=C.ys[row]+210;
+        rect(x-49,y-100,23,190,'#58707125');rect(x+23,y-95,23,185,'#273f4020');
+        c.strokeStyle='#a8b8a046';c.lineWidth=1;c.beginPath();c.moveTo(x-42,y-62);c.lineTo(x-35,y-42);c.lineTo(x-41,y-18);c.stroke();
+        c.fillStyle='#314b4d';c.beginPath();c.arc(x-15,y+44,7,0,Math.PI*2);c.fill();c.strokeStyle='#83918a';c.beginPath();c.arc(x-15,y+44,5,0,Math.PI*2);c.stroke();
+        for(const side of [-1,1]){
+          const ax=x+side*27,ay=y+side*64;c.save();c.translate(ax,ay);if(side<0)c.rotate(Math.PI);
+          c.fillStyle='#dcd8bd99';c.beginPath();c.moveTo(-2,-12);c.lineTo(2,-12);c.lineTo(2,3);c.lineTo(7,3);c.lineTo(0,12);c.lineTo(-7,3);c.lineTo(-2,3);c.fill();c.restore();
+          rect(x+side*52-2,y+98,4,14,'#2e4745');for(let n=0;n<4;n++)rect(x+side*52-2,y+99+n*3,4,1,'#86978b');
+          rect(x+side*69-3,y-36,6,13,'#668d78');rect(x+side*69-4,y-38,8,3,'#b4c2a0');
+        }
       }
       c.textAlign='center';c.textBaseline='middle';c.font='bold 10px Arial';c.fillStyle='#d6d7bc';
       for(let j=0;j<6;j++)for(let i=0;i<6;i++){c.fillText(['SOLAR AVENUE','PALMETTO WAY','LIDO BOULEVARD','SUNDIAL AVENUE','CANAL STREET','HARBOR DRIVE'][j],C.xs[i]+210,C.ys[j]-42);}
@@ -161,6 +174,17 @@
       for(let k=0;k<(w>140?2:1);k++){const ax=x+w-38-k*31,ay=y+24;c.fillStyle='#6f8174';c.fillRect(ax+3,ay+4,23,24);c.fillStyle='#c6c7ad';c.fillRect(ax,ay,23,24);c.strokeStyle='#859a8a';c.lineWidth=1;c.beginPath();c.arc(ax+11,ay+12,7,0,Math.PI*2);c.stroke();c.beginPath();c.moveTo(ax+5,ay+6);c.lineTo(ax+17,ay+18);c.moveTo(ax+17,ay+6);c.lineTo(ax+5,ay+18);c.stroke();}
       if(h>180){c.fillStyle='#52726b';c.fillRect(x+23,y+h-76,w-46,32);c.fillStyle='#72978b';for(let k=28;k<w-26;k+=22)c.fillRect(x+k,y+h-73,16,26);}
       c.fillStyle='#5b827b';c.fillRect(x+12,y+h-13,w-24,8);c.fillStyle='#efcc95';for(let k=15;k<w-18;k+=20)c.fillRect(x+k,y+h-13,9,8);
+      // Street-facing windows, striped awnings and a visible front door.
+      c.fillStyle='#395e5c';for(let k=15;k<w-18;k+=22){c.fillRect(x+k,y+h-5,12,9);c.fillStyle='#b9ddd057';c.fillRect(x+k+2,y+h-4,3,7);c.fillStyle='#395e5c';}
+      const awning=b.detail===0?'#d87960':b.detail===1?'#4d9b96':'#d5b56e';
+      c.fillStyle='#344e3e33';c.fillRect(x+11,y+h+5,w-22,6);
+      c.fillStyle=awning;c.fillRect(x+10,y+h-6,w-20,9);
+      c.fillStyle='#fff1d080';for(let k=13;k<w-15;k+=13)c.fillRect(x+k,y+h-6,5,9);
+      c.fillStyle='#314e4b';c.fillRect(x+w/2-6,y+h-5,12,13);c.fillStyle='#e7cc90';c.fillRect(x+w/2+2,y+h+1,2,3);
+      if(b.roof===3){
+        c.fillStyle='#526f73';for(let k=0;k<3;k++){c.fillRect(x+27+k*38,y+80,31,44);c.strokeStyle='#a4c2b4';c.lineWidth=1;c.strokeRect(x+29+k*38,y+82,27,40);for(let n=1;n<4;n++){c.beginPath();c.moveTo(x+29+k*38,y+82+n*10);c.lineTo(x+56+k*38,y+82+n*10);c.stroke();}}
+      }
+      if(b.detail===2&&h>120){c.fillStyle='#ac9a72';c.fillRect(x+w-32,y+h-60,18,31);c.fillStyle='#59876c';for(let n=0;n<3;n++){c.beginPath();c.arc(x+w-23,y+h-54+n*9,7,0,7);c.fill();}}
       c.textAlign='center';c.textBaseline='middle';c.font='bold '+(w>150?'11':'8')+'px Arial';c.fillStyle='#536658';
       c.fillText(b.name,x+w/2,y+h*.62,w-18);
     }

@@ -17,7 +17,7 @@ window.Sunline = {};
   S.angle = (a,b) => Math.atan2(Math.sin(b-a),Math.cos(b-a));
   S.rng = function(seed) { let n=seed|0; return () => {n=(n+0x6d2b79f5)|0;let t=Math.imul(n^(n>>>15),1|n);t^=t+Math.imul(t^(t>>>7),61|t);return ((t^(t>>>14))>>>0)/4294967296;}; };
   S.money = n => '$'+Math.floor(n).toLocaleString('en-US');
-  S.starCount = g => Math.min(5,Math.ceil(Math.max(0,g.heat-.001)));
+  S.starCount = g => Math.min(5,Math.ceil(Math.max(0,g.heat)));
   S.target = g => g.player.car || g.player;
   S.roundRect = function(c,x,y,w,h,r=8) {c.beginPath();c.roundRect(x,y,w,h,r);};
 })(window.Sunline);

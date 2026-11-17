@@ -2,7 +2,9 @@
 (function(S){
   const C=S.C,TAU=Math.PI*2;
   S.makeCar=function(x,y,a,color,kind='parked'){
-    return {x,y,a,color,kind,speed:0,hp:100,maxHp:100,w:23,h:45,owned:false,flash:0,hitCD:0,shootCD:2,path:[],pathTimer:0,stuck:0,dead:false,name:kind==='police'?'CIVIC INTERCEPTOR':'VENTO SEDAN',turn:0};
+    const model=kind==='special'?3:kind==='police'?4:Math.abs(Math.floor(x*3+y))%3;
+    const specs=[['VENTO SEDAN',23,45,305],['LIDO COMPACT',22,38,290],['SOLAR ESTATE',25,49,280],['AURELIA GT',25,47,350],['CIVIC INTERCEPTOR',24,47,305]][model];
+    return {x,y,a,color,kind,model,speed:0,hp:100,maxHp:100,w:specs[1],h:specs[2],topSpeed:specs[3],owned:false,flash:0,hitCD:0,shootCD:2,path:[],pathTimer:0,stuck:0,dead:false,deadAge:0,name:specs[0],turn:0,braking:false};
   };
   S.populate=function(g){
     const r=g.random;g.cars=[];g.peds=[];g.bullets=[];g.particles=[];g.skids=[];
@@ -42,6 +44,8 @@
     if(S.starCount(g)>old){g.notify('CRIME REPORTED  /  '+S.starCount(g)+'-STAR RESPONSE');g.sound('alert');}
     return true;
   };
+  // Story beats set a minimum response; they never add an accidental extra pursuit.
+  S.raiseHeat=function(g,minimum,x,y){S.crime(g,Math.max(0,minimum-g.heat),x,y,true);};
   S.damagePlayer=function(g,amount,source='WASTED'){
     if(g.mode!=='play'||g.player.invuln>0)return;
     g.player.hp=Math.max(0,g.player.hp-amount);g.player.hurt=.35;g.shake=Math.max(g.shake,4);g.sound('hurt');
@@ -52,39 +56,48 @@
     if(p.car){
       if(Math.abs(p.car.speed)>85){g.notify('SLOW DOWN TO EXIT');return;}
       const c=p.car;let exit=null;
-      for(const offset of [Math.PI/2,-Math.PI/2,Math.PI,0]){const q={x:c.x+Math.cos(c.a+offset)*40,y:c.y+Math.sin(c.a+offset)*40};if(!g.city.solid(q.x,q.y,11)){exit=q;break;}}
+      for(const radius of [36,48]){for(const offset of [Math.PI/2,-Math.PI/2,Math.PI,0]){const q={x:c.x+Math.cos(c.a+offset)*radius,y:c.y+Math.sin(c.a+offset)*radius};if(!g.city.solid(q.x,q.y,11)&&g.city.clear(c,q)&&!g.cars.some(other=>other!==c&&S.dist(q,other)<29)){exit=q;break;}}if(exit)break;}
       if(!exit){g.notify('NO ROOM TO OPEN THE DOOR');return;}
       p.x=exit.x;p.y=exit.y;p.car=null;c.speed=0;p.invuln=.5;g.sound('door');return;
     }
     let car=null,dd=64;
-    for(const c of g.cars){const d=S.dist(p,c);if(d<dd&&!c.dead&&g.city.clear(p,c)){dd=d;car=c;}}
+    for(const c of g.cars){const d=S.dist(p,c);if(d<dd&&!c.dead&&Math.abs(c.speed)<100&&g.city.clear(p,c)){dd=d;car=c;}}
     if(!car){g.notify('GET CLOSER TO A VEHICLE');return;}
     if(car.kind==='police'&&g.heat>0){g.notify('POLICE VEHICLE LOCKED DURING PURSUIT');return;}
-    if(!car.owned){S.crime(g,.95,car.x,car.y);car.owned=true;if(car.kind==='traffic'){const ped=makePed(g,30);ped.x=car.x+34;ped.y=car.y;ped.flee=7;if(g.peds.length<30)g.peds.push(ped);}}
-    car.kind=car===g.specialCar?'special':'parked';car.path=[];p.car=car;car.speed*=.4;g.sound('door');g.notify(car.name+'  /  W ACCELERATE · S BRAKE · A/D STEER');
+    if(!car.owned){S.crime(g,.95,car.x,car.y);car.owned=true;if(car.kind==='traffic'){const ped=makePed(g,30);for(const side of [1,-1]){const x=car.x-Math.sin(car.a)*34*side,y=car.y+Math.cos(car.a)*34*side;if(!g.city.solid(x,y,9)){ped.x=x;ped.y=y;break;}}ped.flee=7;if(g.peds.length<30)g.peds.push(ped);}}
+    car.kind=car===g.specialCar?'special':'parked';car.path=[];p.car=car;p.x=car.x;p.y=car.y;p.a=car.a;car.turn=0;car.speed*=.4;g.sound('door');g.notify(car.name+'  /  W ACCELERATE · S BRAKE · A/D STEER');
   };
   S.reload=function(g){const p=g.player;if(p.reload||p.ammo===12)return;p.reload=1.1;g.sound('reload');};
   function shoot(g,x,y,a,enemy=false){
     g.bullets.push({x,y,px:x,py:y,vx:Math.cos(a)*760,vy:Math.sin(a)*760,life:.8,enemy});
-    S.effects(g,x+Math.cos(a)*8,y+Math.sin(a)*8,'#ffe3a0',3,35);g.sound(enemy?'enemy':'shot');
-    if(!enemy){g.player.ammo--;g.player.fireCD=.22;g.shake=2;S.crime(g,.22,x,y);for(const p of g.peds)if(S.dist(p,{x,y})<420)p.flee=7;}
+    S.effects(g,x+Math.cos(a)*8,y+Math.sin(a)*8,'#ffe3a0',3,35);
+    if(g.particles.length<150)g.particles.push({x,y,a,vx:0,vy:0,life:.065,max:.065,color:'#fff2bc',size:12,type:'flash'});
+    g.sound(enemy?'enemy':'shot');
+    if(!enemy){g.player.ammo--;g.player.fireCD=.22;g.shake=Math.max(g.shake,2);S.crime(g,.22,x,y);}
+    for(const p of g.peds)if(S.dist(p,{x,y})<420){p.flee=7;p.threat={x,y};}
   }
   function updatePlayer(g,dt,input){
     const p=g.player,axis=input.axes();p.hurt=Math.max(0,p.hurt-dt);p.invuln=Math.max(0,p.invuln-dt);p.fireCD=Math.max(0,p.fireCD-dt);
     if(p.reload){p.reload-=dt;if(p.reload<=0){p.reload=0;p.ammo=12;}}
     if(p.car){
       const c=p.car,throttle=-axis.y,handbrake=input.held('Space'),oldSpeed=c.speed;
-      if(throttle){const reversing=Math.sign(throttle)!==Math.sign(c.speed)&&Math.abs(c.speed)>10;c.speed+=throttle*(reversing?370:throttle>0?173:115)*dt;}
+      const reversing=throttle&&Math.sign(throttle)!==Math.sign(c.speed)&&Math.abs(c.speed)>8;
+      c.braking=!!(handbrake||reversing);
+      if(throttle){const torque=throttle>0?195*(1-.55*S.clamp(c.speed/c.topSpeed,0,1)):110;c.speed+=throttle*(reversing?380:torque)*dt;if(reversing&&Math.sign(oldSpeed)!==Math.sign(c.speed))c.speed=0;}
       else {const f=25*dt;c.speed=Math.abs(c.speed)<f?0:c.speed-Math.sign(c.speed)*f;}
       if(handbrake)c.speed*=Math.exp(-3.6*dt);
-      const offroad=!g.city.road(c.x,c.y);c.speed=S.clamp(c.speed,-100,offroad?175:c===g.specialCar?355:305);
-      c.a+=axis.x*2.35*S.clamp(Math.abs(c.speed)/85,0,1.25)*Math.sign(c.speed||1)*dt*(handbrake?1.6:1);
+      const offroad=!g.city.road(c.x,c.y),limit=offroad?175:c.topSpeed;
+      if(c.speed>limit)c.speed=Math.max(limit,c.speed-160*dt);
+      c.speed=S.clamp(c.speed,-95,c.topSpeed);
+      c.turn=S.lerp(c.turn,axis.x,1-Math.exp(-dt*(axis.x?7:10)));
+      const steering=(2.3-.85*S.clamp(Math.abs(c.speed)/c.topSpeed,0,1))*S.clamp(Math.abs(c.speed)/65,0,1);
+      c.a+=c.turn*steering*Math.sign(c.speed||1)*dt*(handbrake?1.55:1);
       const hit=g.city.move(c,Math.cos(c.a)*c.speed*dt,Math.sin(c.a)*c.speed*dt,18);
       if(hit&&Math.abs(oldSpeed)>50&&c.hitCD<=0){c.hp-=Math.abs(oldSpeed)*.075;S.damagePlayer(g,Math.abs(oldSpeed)*.012);c.speed*=-.25;c.hitCD=.5;g.shake=7;S.effects(g,c.x,c.y,'#ffe0a0',12,100);g.sound('crash');}
       else if(hit)c.speed*=.9;
       if(Math.abs(c.speed)>125&&(axis.x||handbrake)&&g.time-g.lastSkid>.06){g.lastSkid=g.time;g.skids.push({x:c.x-Math.cos(c.a)*15,y:c.y-Math.sin(c.a)*15,a:c.a,life:9});if(g.skids.length>130)g.skids.shift();}
       p.x=c.x;p.y=c.y;p.a=c.a;p.step+=Math.abs(c.speed)*dt*.04;
-      if(c.hp<=0){destroyCar(g,c);g.fail('WASTED');}
+      if(c.hp<=0){destroyCar(g,c);g.fail('WASTED');return;}
       if(Math.abs(c.speed)>45)g.escapeDistance+=Math.abs(c.speed)*dt;
     }else{
       const len=Math.hypot(axis.x,axis.y)||1,sprint=input.held('ShiftLeft','ShiftRight'),speed=sprint?162:108;
@@ -93,10 +106,9 @@
       const aim=g.screenToWorld(input.mouse.x,input.mouse.y);p.a=Math.atan2(aim.y-p.y,aim.x-p.x);
       if(input.mouse.down&&!p.reload&&p.fireCD<=0){if(p.ammo>0)shoot(g,p.x+Math.cos(p.a)*17,p.y+Math.sin(p.a)*17,p.a);else S.reload(g);}
     }
-    if(input.take('KeyR'))S.reload(g);
   }
   function destroyCar(g,c){
-    if(c.dead)return;c.dead=true;c.hp=0;c.speed=0;S.effects(g,c.x,c.y,'#f5ac5e',35,150);g.shake=9;g.sound('crash');
+    if(c.dead)return;c.dead=true;c.deadAge=0;c.hp=0;c.speed=0;S.effects(g,c.x,c.y,'#f5ac5e',35,150);g.shake=9;g.sound('crash');
     if(c===g.specialCar&&g.mission.active&&g.mission.index===2)g.mission.retry('The Aurelia was destroyed. Mara has another lead.');
   }
   function updateTraffic(g,c,dt){
@@ -107,15 +119,16 @@
     if(!g.player.car&&S.dist(ahead,g.player)<32)desired=0;
     const n=g.city.nearestRoad(c.x,c.y),intersection=Math.hypot(n.x-c.x,n.y-c.y)<81;
     if(intersection){const vertical=Math.abs(Math.sin(c.a))>.65,phase=Math.floor(g.time/7)%2;if((vertical?1:0)!==phase&&Math.hypot(n.x-c.x,n.y-c.y)>48)desired=0;else desired=Math.min(desired,60);}
-    c.speed=S.lerp(c.speed,desired,Math.min(1,dt*2));
+    c.braking=c.speed>desired+10;c.speed=S.lerp(c.speed,desired,1-Math.exp(-dt*2));
     const wanted=Math.atan2(c.ty-c.y,c.tx-c.x);c.a+=S.clamp(S.angle(c.a,wanted),-dt*2.2,dt*2.2);
     if(g.city.move(c,Math.cos(c.a)*c.speed*dt,Math.sin(c.a)*c.speed*dt,17)){c.speed=0;c.stuck+=dt;if(c.stuck>2){c.x=C.xs[c.lastNode.i]-Math.sin(wanted)*27;c.y=C.ys[c.lastNode.j]+Math.cos(wanted)*27;c.a=wanted;c.stuck=0;}}else c.stuck=0;
   }
   function spawnPolice(g){
     const t=S.target(g);let best=null;
     for(let n=0;n<40;n++){
-      const a=g.random()*TAU,d=590+g.random()*240;const x=t.x+Math.cos(a)*d,y=t.y+Math.sin(a)*d;
+      const a=g.random()*TAU,d=650+g.random()*240;const x=g.lastKnown.x+Math.cos(a)*d,y=g.lastKnown.y+Math.sin(a)*d;
       const node=g.city.nearestRoad(x,y);if(S.dist(node,t)<510||S.dist(node,t)>1050)continue;
+      if(g.renderer.visible(node.x+27,node.y,55)||g.cars.some(c=>S.dist(c,{x:node.x+27,y:node.y})<65))continue;
       best=node;break;
     }
     if(!best)return;
@@ -126,28 +139,44 @@
     if(g.heat<=0){c.speed=S.lerp(c.speed,0,dt*2);return;}
     const seeing=d<(g.player.car?660:470)&&g.city.clear(c,t);
     if(seeing){g.seen=true;g.lastSeen=g.time;g.lastKnown={x:t.x,y:t.y};}
-    const goal=seeing?t:g.lastKnown;
-    if(c.pathTimer<=0){c.path=g.city.route(c,goal);c.pathTimer=.9+g.random()*.3;}
+    let goal=g.lastKnown;
+    if(seeing){
+      c.searchGoal=null;c.spotted=(c.spotted||0)+dt;
+      const lead=g.player.car?Math.min(.55,d/600)*g.player.car.speed:0;
+      const intercept={x:t.x+Math.cos(t.a)*lead,y:t.y+Math.sin(t.a)*lead};
+      goal=g.city.solid(intercept.x,intercept.y,20)?t:intercept;
+    }else{
+      c.spotted=0;
+      // Once dispatch's last sighting is reached, sweep nearby junctions, not the hidden player.
+      if(S.dist(c,g.lastKnown)<95||c.searchGoal){
+        if(!c.searchGoal||S.dist(c,c.searchGoal)<65){const n=g.city.nearestRoad(g.lastKnown.x,g.lastKnown.y),offsets=[[1,0],[-1,0],[0,1],[0,-1],[0,0]],o=offsets[Math.floor(g.random()*offsets.length)];c.searchGoal={x:C.xs[S.clamp(n.i+o[0],0,6)],y:C.ys[S.clamp(n.j+o[1],0,6)]};}
+        goal=c.searchGoal;
+      }
+    }
+    if(c.pathTimer<=0){c.path=g.city.route(c,goal);c.pathTimer=1.1+g.random()*.35;}
     while(c.path.length&&S.dist(c,c.path[0])<27)c.path.shift();
     let target=c.path[0]||goal;
-    if(seeing&&d<180&&g.city.clear(c,t))target=t;
+    if(seeing&&d<210&&g.city.clear(c,goal))target=goal;
     const angle=Math.atan2(target.y-c.y,target.x-c.x),turn=S.angle(c.a,angle);
     c.a+=S.clamp(turn,-3.4*dt,3.4*dt);
-    const wantedSpeed=(d<65?60:178+S.starCount(g)*18)*(Math.abs(turn)>1.1?.4:1);
-    c.speed=S.lerp(c.speed,wantedSpeed,Math.min(1,dt*2));
+    let wantedSpeed=(seeing?(d<65?48:172+S.starCount(g)*16):145)*S.clamp(1-Math.abs(turn)*.55,.22,1);
+    const ahead={x:c.x+Math.cos(c.a)*48,y:c.y+Math.sin(c.a)*48};
+    if(g.cars.some(other=>other!==c&&other!==g.player.car&&!other.dead&&S.dist(other,ahead)<32))wantedSpeed=Math.min(wantedSpeed,28);
+    c.braking=c.speed>wantedSpeed+15;c.speed=S.lerp(c.speed,wantedSpeed,1-Math.exp(-dt*2.8));
     if(g.city.move(c,Math.cos(c.a)*c.speed*dt,Math.sin(c.a)*c.speed*dt,17)){c.stuck+=dt;c.speed*=.7;if(c.stuck>1.5){c.pathTimer=0;if(c.path[0]){const a=Math.atan2(c.path[0].y-c.y,c.path[0].x-c.x);c.a=a;g.city.move(c,Math.cos(a)*35*dt,Math.sin(a)*35*dt,17);}}}else c.stuck=0;
-    if(seeing&&S.starCount(g)>=3&&d<325&&c.shootCD<=0){shoot(g,c.x+Math.cos(angle)*28,c.y+Math.sin(angle)*28,angle+(g.random()-.5)*.2,true);c.shootCD=1.6-g.heat*.13;}
+    if(seeing&&c.spotted>.8&&S.starCount(g)>=3&&d<290&&c.shootCD<=0){const aim=Math.atan2(t.y-c.y,t.x-c.x);shoot(g,c.x+Math.cos(aim)*28,c.y+Math.sin(aim)*28,aim+(g.random()-.5)*.28,true);c.shootCD=2.2-g.heat*.15;}
     if(d<(g.player.car?49:35)&&c.hitCD<=0){
-      if(g.player.car){g.player.car.hp-=6;c.speed*=-.4;S.damagePlayer(g,2);g.shake=4;}else S.damagePlayer(g,7,'BUSTED');c.hitCD=.9;
+      if(g.player.car){if(g.player.car.hitCD<=0){g.player.car.hp-=5;g.player.car.hitCD=.8;c.speed*=-.3;S.damagePlayer(g,1);g.shake=Math.max(g.shake,4);S.effects(g,c.x,c.y,'#ffdc95',6,65);}}else S.damagePlayer(g,5,'BUSTED');c.hitCD=1.1;
     }
   }
   function updatePed(g,p,dt){
     if(p.dead){p.dead-=dt;if(p.dead<=0){const fresh=makePed(g,p.id);Object.assign(p,fresh);}return;}
     p.hitCD=Math.max(0,p.hitCD-dt);p.flee=Math.max(0,p.flee-dt);
     const t=S.target(g),near=S.dist(p,t),danger=(g.player.car&&Math.abs(g.player.car.speed)>100&&near<145)||(g.heat>2&&near<100);
-    if(danger)p.flee=Math.max(p.flee,2);
+    const approaching=g.cars.find(c=>!c.dead&&Math.abs(c.speed)>75&&S.dist(c,p)<120&&(p.x-c.x)*Math.cos(c.a)*c.speed+(p.y-c.y)*Math.sin(c.a)*c.speed>0);
+    if(danger||approaching){p.flee=Math.max(p.flee,2);p.threat={x:(approaching||t).x,y:(approaching||t).y};}
     let dx=0,dy=0;
-    if(p.flee>0){let a=Math.atan2(p.y-t.y,p.x-t.x);if(g.city.solid(p.x+Math.cos(a)*30,p.y+Math.sin(a)*30,9))a+=Math.PI/2;p.a=a;dx=Math.cos(a)*93*dt;dy=Math.sin(a)*93*dt;}
+    if(p.flee>0){const threat=p.threat||t,away=Math.atan2(p.y-threat.y,p.x-threat.x);let a=away;for(const offset of [0,Math.PI/3,-Math.PI/3,Math.PI/2,-Math.PI/2,Math.PI]){a=away+offset;if(!g.city.solid(p.x+Math.cos(a)*30,p.y+Math.sin(a)*30,9))break;}p.a=a;dx=Math.cos(a)*110*dt;dy=Math.sin(a)*110*dt;}
     else{
       if(p.horizontal){dx=p.dir*p.speed*dt;dy=S.clamp(p.line-p.y,-25*dt,25*dt);if(p.x<175||p.x>2900)p.dir*=-1;}
       else{dy=p.dir*p.speed*dt;dx=S.clamp(p.line-p.x,-25*dt,25*dt);if(p.y<145||p.y>2850)p.dir*=-1;}
@@ -156,7 +185,7 @@
     if(g.city.move(p,dx,dy,8))p.dir*=-1;p.step+=dt*(p.flee?15:8);
     for(const c of g.cars){if(c.dead||Math.abs(c.speed)<55||S.dist(p,c)>27||p.hitCD>0)continue;
       p.hp=0;p.dead=16;p.hitCD=2;S.effects(g,p.x,p.y,'#e6bd87',7,45);
-      if(c===g.player.car){c.speed*=.8;S.crime(g,.8,p.x,p.y,true);g.notify('PEDESTRIAN STRUCK  /  WITNESSES CALLING');}
+      if(c===g.player.car){c.speed*=.8;S.crime(g,.8,p.x,p.y,true);g.notify('PEDESTRIAN STRUCK  /  WITNESSES CALLING');}break;
     }
   }
   function updateBullets(g,dt){
@@ -164,7 +193,7 @@
       for(let k=0;k<steps&&b.life>0;k++){
         b.x+=b.vx*dt/steps;b.y+=b.vy*dt/steps;
         if(g.city.solid(b.x,b.y,1)){b.life=0;S.effects(g,b.x,b.y,'#e6c897',3,25);break;}
-        if(b.enemy){if(S.dist(b,S.target(g))<(g.player.car?23:13)){if(g.player.car){g.player.car.hp-=3;if(g.player.car.hp<=0)g.fail('WASTED');}else S.damagePlayer(g,7);b.life=0;}}
+        if(b.enemy){if(S.dist(b,S.target(g))<(g.player.car?23:13)){if(g.player.car){g.player.car.hp-=3;g.player.car.flash=.1;if(g.player.car.hp<=0){destroyCar(g,g.player.car);g.fail('WASTED');}}else S.damagePlayer(g,7);b.life=0;}else if(g.cars.some(c=>c!==g.player.car&&S.dist(c,b)<22)){b.life=0;S.effects(g,b.x,b.y,'#ffcf8a',3,35);}}
         else {
           for(const p of g.peds){if(p.dead||S.dist(p,b)>12)continue;p.hp-=24;p.flee=8;b.life=0;S.effects(g,p.x,p.y,'#e6b886',5,40);S.crime(g,.55,p.x,p.y,true);if(p.hp<=0)p.dead=16;break;}
           if(b.life>0)for(const c of g.cars){if(c===g.player.car||c.dead||S.dist(c,b)>24)continue;c.hp-=16;c.flash=.15;b.life=0;S.effects(g,b.x,b.y,'#ffd28a',5,70);if(c.kind==='police')S.crime(g,.7,c.x,c.y,true);if(c.hp<=0)destroyCar(g,c);break;}
@@ -174,28 +203,29 @@
     g.bullets=g.bullets.filter(b=>b.life>0);
   }
   S.tickEntities=function(g,dt,input){
-    updatePlayer(g,dt,input);g.seen=false;const t=S.target(g);
-    for(const c of g.cars){c.flash=Math.max(0,c.flash-dt);c.hitCD=Math.max(0,c.hitCD-dt);if(c.dead||c===g.player.car)continue;
+    updatePlayer(g,dt,input);if(g.mode!=='play')return;g.seen=false;const t=S.target(g);
+    for(const c of g.cars){c.flash=Math.max(0,c.flash-dt);c.hitCD=Math.max(0,c.hitCD-dt);if(c.dead)c.deadAge+=dt;if(c.dead||c===g.player.car)continue;
       if(c.kind==='traffic')updateTraffic(g,c,dt);if(c.kind==='police')updatePolice(g,c,dt);
+      if(g.mode!=='play')return;
     }
     // Collision impulses are bounded, so a pileup cannot instantly consume all health.
     const own=g.player.car;
     if(own&&!own.dead)for(const c of g.cars){if(c===own||c.dead||S.dist(c,own)>38||own.hitCD>0)continue;
-      const impact=Math.abs(own.speed-c.speed);if(impact>35){own.hp-=Math.min(13,impact*.045);c.hp-=Math.min(20,impact*.06);S.effects(g,(c.x+own.x)/2,(c.y+own.y)/2,'#ffdb8d',8,70);g.shake=4;g.sound('crash');if(c.kind!=='police')S.crime(g,.4,c.x,c.y);}
+      const impact=Math.hypot(Math.cos(own.a)*own.speed-Math.cos(c.a)*c.speed,Math.sin(own.a)*own.speed-Math.sin(c.a)*c.speed);if(impact>35){own.hp-=Math.min(13,impact*.045);c.hp-=Math.min(20,impact*.06);S.effects(g,(c.x+own.x)/2,(c.y+own.y)/2,'#ffdb8d',8,70);g.shake=Math.max(g.shake,Math.min(9,impact*.03));g.sound('crash');if(c.kind!=='police')S.crime(g,.4,c.x,c.y);}
       own.hitCD=.55;own.speed*=-.22;c.speed*=.3;const a=Math.atan2(c.y-own.y,c.x-own.x);g.city.move(c,Math.cos(a)*9,Math.sin(a)*9,18);if(c.hp<=0)destroyCar(g,c);
     }
-    for(const p of g.peds)updatePed(g,p,dt);updateBullets(g,dt);
+    for(const p of g.peds)updatePed(g,p,dt);updateBullets(g,dt);if(g.mode!=='play')return;
     g.spawnCD-=dt;
     const cops=g.cars.filter(c=>c.kind==='police'&&!c.dead);
-    if(g.heat>0&&g.spawnCD<=0&&cops.length<Math.min(6,S.starCount(g)+1)){spawnPolice(g);g.spawnCD=3;}
+    if(g.heat>0&&g.time-g.lastSeen<5&&g.spawnCD<=0&&cops.length<Math.min(6,S.starCount(g)+1)){spawnPolice(g);g.spawnCD=3.5;}
     if(g.heat>0){
-      if(!g.seen&&g.time-g.lastSeen>5&&g.time-g.lastCrime>6)g.heat=Math.max(0,g.heat-dt*.105);
+      if(!g.seen&&g.time-g.lastSeen>5&&g.time-g.lastCrime>6)g.heat=Math.max(0,g.heat-dt*.14);
       if(g.heat===0){g.notify('PURSUIT EVADED  /  YOU ARE CLEAR');g.sound('success');g.save();}
       if(!g.player.car&&cops.some(c=>S.dist(c,t)<49&&g.city.clear(c,t)))g.bust+=dt;else g.bust=Math.max(0,g.bust-dt*2);
       if(g.bust>3)g.fail('BUSTED');
     }else g.bust=0;
-    g.cars=g.cars.filter(c=>c===g.specialCar||c===g.player.car||c.kind!=='police'||(g.heat>0&&S.dist(c,t)<1350)||S.dist(c,t)<480);
-    for(const e of g.particles){e.life-=dt;e.x+=e.vx*dt;e.y+=e.vy*dt;e.vx*=.96;e.vy*=.96;}g.particles=g.particles.filter(e=>e.life>0);
+    g.cars=g.cars.filter(c=>c===g.specialCar||c===g.player.car||c.model!==4||(c.dead?c.deadAge<18:(c.kind==='police'?((g.heat>0&&S.dist(c,t)<1350)||S.dist(c,t)<480):S.dist(c,t)<1350)));
+    for(const e of g.particles){e.life-=dt;e.x+=e.vx*dt;e.y+=e.vy*dt;e.vx*=Math.exp(-2.45*dt);e.vy*=Math.exp(-2.45*dt);}g.particles=g.particles.filter(e=>e.life>0);
     for(const s of g.skids)s.life-=dt;g.skids=g.skids.filter(s=>s.life>0);
     if(g.player.car&&g.player.car.hp<=0&&g.mode==='play'){destroyCar(g,g.player.car);g.fail('WASTED');}
   };
