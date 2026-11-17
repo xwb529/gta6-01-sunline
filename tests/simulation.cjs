@@ -100,8 +100,24 @@ check('abandoned Aurelia is tracked and destroyed mission car is recoverable',()
   Object.assign(g.specialCar,{dead:true,hp:0,speed:220,hitCD:4,turn:1});g.mission.tick(1/60);assert(!g.mission.active);g.mission.start();assert(!g.specialCar.dead);assert.equal(g.specialCar.speed,0);assert.equal(g.specialCar.hitCD,0);assert.equal(g.specialCar.hp,100);assert.equal(g.specialCar.x,C.coupe.x);
 });
 check('mission objectives cannot be collected through a building',()=>{
-  g.start();g.mission.start();const b=g.city.buildings.find(b=>C.package.x<b.x&&Math.abs(b.x-C.package.x)<40&&C.package.y>b.y&&C.package.y<b.y+b.h);
-  assert(b);moveTo({x:b.x+5,y:C.package.y});assert(!g.city.clear(g.player,C.package));g.mission.interact();assert.equal(g.mission.stage,0);
+  g.start();
+  // Use a real building corner with walkable points on either side. The story
+  // package's usual sidewalk position need not allow an occluded pickup attempt.
+  const setup=g.city.buildings.map(b=>({
+    point:{x:b.x-12,y:b.y+24},player:{x:b.x+24,y:b.y-12}
+  })).find(({point,player})=>!g.city.solid(point.x,point.y,11)&&!g.city.solid(player.x,player.y,11)&&S.dist(player,point)<75&&!g.city.clear(player,point));
+  assert(setup,'city must provide a walkable, in-range pickup blocked by a building');
+  const original={...C.package};
+  try{
+    Object.assign(C.package,setup.point);g.mission.start();moveTo(setup.player);
+    assert(!g.city.solid(g.player.x,g.player.y,11),'player must be outside buildings');
+    assert(!g.city.solid(C.package.x,C.package.y,11),'package must be outside buildings');
+    assert(S.dist(g.player,C.package)<75,'pickup must be within interaction range');
+    assert(!g.city.clear(g.player,C.package),'building must block the pickup');
+    g.mission.interact();assert.equal(g.mission.stage,0,'blocked pickup must not advance the mission');
+    moveTo(C.package);assert(g.city.clear(g.player,C.package));
+    g.mission.interact();assert.equal(g.mission.stage,1,'unobstructed pickup must advance the mission');
+  }finally{Object.assign(C.package,original);}
 });
 check('courier marker, guidance and payout stay consistent',()=>{
   g.start();g.mission=new S.Missions(g,4);moveTo(C.contact);g.mission.interact();assert.equal(g.mission.marker().x,C.dock.x);assert(g.mission.objective().includes('$250'));moveTo(C.dock);g.mission.tick(1/60);assert.equal(g.cash,400);g.mission.tick(1/60);assert.equal(g.cash,400);assert.equal(g.mission.marker().x,C.contact.x);
